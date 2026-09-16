@@ -11,9 +11,9 @@
  * 这份 fixture 要跟着换——但"收纳"本身的检查与具体插件无关。
  *
  * 前置条件：本机有 DSH 源码 checkout（提供 jsdom / react / react-dom）。
- *   $env:DSH_CHECKOUT = 'G:/Application/ai-apps/Deepseek_harness_v015rc1'   # 需要时覆盖
  *
- * 跑：node tests/smoke.mjs
+ * 跑：  $env:DSH_CHECKOUT = '<你的 DSH 源码目录>'; node tests/smoke.mjs
+ *       DSH_CHECKOUT=<your checkout> node tests/smoke.mjs
  */
 import { pathToFileURL } from 'node:url'
 import { fileURLToPath } from 'node:url'
@@ -22,7 +22,22 @@ import { join } from 'node:path'
 
 const here = fileURLToPath(new URL('.', import.meta.url))
 const CLIENT = join(here, '..', 'lib', 'client.js')
-const CHECKOUT = process.env.DSH_CHECKOUT ?? 'G:/Application/ai-apps/Deepseek_harness_v015rc1'
+
+// DSH_CHECKOUT 必须显式给出：不再内置任何默认路径。写死作者本机的目录对别人毫无意义
+// （在他机器上根本不存在），而且会把一台机器的目录结构带进公开仓库。
+const CHECKOUT = process.env.DSH_CHECKOUT ?? ''
+if (CHECKOUT === '') {
+  console.error(
+    'smoke: 需要先设置 DSH_CHECKOUT，指向你的 DSH 源码 checkout 根目录'
+    + '（它提供 jsdom / react / react-dom）。\n'
+    + "  PowerShell:  $env:DSH_CHECKOUT = '<your DSH checkout>'; node tests/smoke.mjs\n"
+    + '  bash:        DSH_CHECKOUT=<your DSH checkout> node tests/smoke.mjs\n'
+    + '\n'
+    + 'smoke: set DSH_CHECKOUT to the root of your DSH source checkout '
+    + '(it provides jsdom / react / react-dom).',
+  )
+  process.exit(2)
+}
 
 const missing = [
   ['jsdom', join(CHECKOUT, 'node_modules', 'jsdom', 'lib', 'api.js')],
