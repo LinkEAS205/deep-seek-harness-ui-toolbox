@@ -1,0 +1,93 @@
+# dsh-client-ui-toolbox（工具集合器）
+
+把 DSH Web 输入框工具行里**第三方插件注册的控件**收进一个带搜索框的下拉菜单，只留一个
+工具箱入口按钮；官方自带控件（附件、加号、计划、模型选择器、发送）不在收纳范围内，保持原样。
+
+## 收纳范围
+
+只动两个扩展位，其他区域一律不碰：
+
+| 槽 | 现状（本机） | 是否收纳 |
+| --- | --- | --- |
+| `conversation.input.left` | `dsh-client-screen-snap` 的「截图识别」按钮 | ✅ |
+| `conversation.input.right` | `dsh-browser-scope` 的「浏览器面板」按钮 | ✅ |
+| `conversation.input.plan` / `.model` / 附件 / 发送 | 官方控件 | ❌ 原样不动 |
+
+判定方式是"槽位归属"而不是包名：这两个 list 槽是留给扩展的座位，官方控件走各自的单槽。
+因此以后新装的插件只要注册到这里，会自动出现在菜单里（名字优先按已知指纹匹配，匹配不到就用
+DOM 上的 `aria-label` / `title` / 文本）。
+
+## 收起是怎么做到的
+
+React 子树不能跨插件转移，所以不做"搬节点"，而是**原节点原地压成 0 尺寸并隐藏**：
+
+- 条目本身是 `<button>`：清空底板 + 0 尺寸 + `overflow:hidden`（字形被裁掉）；
+- 条目是容器（内含按钮，还有自己的弹层）：原地绝对定位回它原来的屏幕位置，压成 0 尺寸，
+  隐藏参与排版的子节点，但**保留 absolute/fixed 的弹层**——所以点开第三方自己的菜单时，
+  弹层照常出现在它原来的位置附近。
+
+菜单行代替用户去点原按钮（`element.click()`），因此第三方插件的原有逻辑、浮层、状态全部照旧，
+本插件不复制、不重写任何第三方行为。
+
+## 安装 / 卸载
+
+```powershell
+# 安装（profile 名按实际填，本机是 web）
+pnpm dsh plugin --profile web add link:C:/Users/Lin/.dsh/plugins/dsh-client-ui-toolbox
+
+# 卸载
+pnpm dsh plugin --profile web remove dsh-client-ui-toolbox
+```
+
+`dsh plugin` 会把声明了 `dsh.bundle.patch` 的依赖自动加进 `dsh.profile.bundles`。
+**装完必须重启 `dsh web`**（客户端模块图在启动时组装），然后刷新页面。
+
+## 排障
+
+浏览器控制台里：
+
+```js
+__DSH_TOOLBOX__.build     // 页面当前跑的是哪一版（改完存盘后用来确认热重载到位）
+__DSH_TOOLBOX__.report()  // 当前收了哪些工具（座位 / 名字 / 是否禁用）
+__DSH_TOOLBOX__.rescan()  // 重新扫描并返回条目数
+```
+
+日志前缀是 `[toolbox]`。若某个第三方按钮没被收进去，多半是它的根节点里没有 `<button>`
+（`report()` 里看不到它），此时把它的类名指纹补进 `lib/client.js` 的 `KNOWN` 或者直接看
+`[data-tbx-collected]` 标记。
+
+## 附带的两处第三方修正（都只针对浏览器插件 dsh-browser-scope）
+
+### 1. 底板对齐工具栏
+
+磨砂玻璃主题（`dsh-client-ui-frosted-glass`）把 `--dsw-alias-bg-base` 覆盖成约 **0.36 不透明**的
+rgba，而 `dsh-browser-scope` 的底板直接用这个 token、自己又没有 `backdrop-filter` —— 正文会清清楚
+楚透上来、也没有工具栏那种磨砂质感。这里把它的底板换成**工具栏同款配方**：
+
+```
+background-color: var(--dsw-specific-input-major)   /* 输入框卡片用的同一个表面 token */
+backdrop-filter: blur(var(--frosted-blur)) saturate(var(--frosted-saturate))   /* 同一套磨砂参数 */
+```
+
+- **作用对象**：右侧栏的浏览器面板，及其内部浮层（扩展弹窗、扩展列表、实况控制面板、确认框、
+  错误条）；以及被工具箱收起的那个控制按钮弹出的控制器菜单。
+- **不触碰**：全局 token、主题、官方面板与官方控件。
+- **调节**：改 `lib/client.js` 里那段 CSS 的 token/模糊参数即可；玻璃主题没装时退回 `18px/160%`。
+- 该类名带 CSS 模块哈希前缀（`WKhQka_`）：浏览器插件升级换哈希后本段**自动失效**（不会帮倒忙），
+  届时把新前缀抄进选择器即可。改完存盘由 client-hmr 热生效，通常无需重启、无需刷新。
+
+### 2. 第三方弹层"点空白处 / Esc 自动收起"
+
+浏览器插件的控制器菜单原本只有"再点一次按钮"才关（作者没做点外关闭）。本插件复用**它自己的
+开关**：按钮的 `aria-expanded === 'true'` 时，在文档级 `pointerdown`（点在任何不属于该弹层的
+地方）或 `Esc` 时替用户再点一次那个按钮，走它自己的 `closeMenu()` —— 不复制、不改写它的逻辑。
+点在它自己弹层内部的交互一律放过。
+
+- 因此打开我们的工具箱、点输入框、点聊天区，都会顺手把那类弹层收起来。
+- 对任何"按钮用 `aria-expanded` 反映弹层开合"的第三方控件都同样生效（通用规则）。
+
+## 已知边界
+
+- 依赖第三方控件的 DOM 结构（是否有 `<button>`、弹层是否为 absolute 子节点、开合是否反映在
+  `aria-expanded`）。第三方插件大改结构后可能需要跟着调一次。
+- 被收起的按钮仍在 DOM 里（只是不可见、不占位），这是"点了还能用"的前提。
